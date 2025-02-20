@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>支付统计</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+  <style>
+    .app-container {
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .form-container {
+      margin-bottom: 20px;
+    }
+
+    .table-container {
+      margin-bottom: 20px;
+    }
+
+    .text {
+      font-size: 14px;
+    }
+
+    .item {
+      margin-bottom: 18px;
+    }
+
+    .clearfix:before,
+    .clearfix:after {
+      display: table;
+      content: "";
+    }
+
+    .clearfix:after {
+      clear: both
+    }
+
+    .box-card {
+      width: 100%;
+    }
+
+    .delete-button {
+      margin-left: 10px;
+    }
+
+    .sum-card {
+      margin-top: 20px;
+    }
+
+    .export-button {
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="app-container">
+    <el-form :model="form" label-width="120px" class="form-container">
+      <el-form-item label="房号">
+        <el-input v-model="form.roomNumber" placeholder="请输入房号"></el-input>
+      </el-form-item>
+      <el-form-item label="金额">
+        <el-input v-model.number="form.amount" placeholder="请输入金额"></el-input>
+      </el-form-item>
+      <el-form-item label="支付方式">
+        <el-select v-model="form.paymentMethod" filterable placeholder="请选择支付方式">
+          <el-option label="微信" value="微信"></el-option>
+          <el-option label="美团" value="美团"></el-option>
+          <el-option label="携程" value="携程"></el-option>
+          <el-option label="现金" value="现金"></el-option>
+          <el-option label="飞猪" value="飞猪"></el-option>
+          <el-option label="支付宝" value="支付宝"></el-option>
+          <el-option label="其他" value="其他"></el-option>
+          <el-option label="微信补交" value="微信补交"></el-option>
+          <el-option label="vip" value="vip"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" @click="addRecord">添加记录</el-button>
+      </el-form-item>
+    </el-form>
+    <el-card class="box-card">
+      <div slot="header" class="clearfix">
+        <span>支付方式统计</span>
+      </div>
+      <div v-for="(total, method) in paymentTotals" :key="method" class="text item">
+        {{ method }}: {{ total }} (单数: {{ paymentCounts[method] || 0 }})
+        <el-checkbox v-model="selectedMethods" :label="method" style="margin-left: 10px;">选择</el-checkbox>
+      </div>
+    </el-card>
+    <el-card class="sum-card">
+      <div slot="header" class="clearfix">
+        <span>选择的支付方式总和</span>
+      </div>
+      <div v-if="selectedMethods.length > 0">
+        <div v-for="method in selectedMethods" :key="method" class="text item">
+          {{ method }}: {{ paymentTotals[method] }}
+        </div>
+        <div class="text item">
+          <strong>总和: {{ selectedTotal }}</strong>
+        </div>
+      </div>
+      <div v-else>
+        <div class="text item">
+          请选择支付方式以查看总和
+        </div>
+      </div>
+    </el-card>
+    <el-button type="primary" @click="exportToExcel" class="export-button">导出为 Excel</el-button>
+    <el-table :data="records" style="width: 100%" class="table-container">
+      <el-table-column type="index" label="序号" width="80"></el-table-column>
+      <el-table-column prop="roomNumber" label="房号" width="180" :filters="roomNumberFilters" :filter-method="filterRoomNumber" filter-placement="bottom-end">
+        <template slot="header" slot-scope="scope">
+          <el-input v-model="roomNumberSearch" size="mini" placeholder="输入房号" @keyup.enter.native="handleRoomNumberSearch(scope)" />
+        </template>
+      </el-table-column>
+      <el-table-column prop="amount" label="金额" width="180"></el-table-column>
+      <el-table-column prop="paymentMethod" label="支付方式" width="180" :filters="paymentMethodFilters" :filter-method="filterPaymentMethod" filter-placement="bottom-end">
+        <template slot="header" slot-scope="scope">
+          <el-input v-model="paymentMethodSearch" size="mini" placeholder="输入支付方式" @keyup.enter.native="handlePaymentMethodSearch(scope)" />
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="120">
+        <template slot-scope="scope">
+          <el-button size="mini" type="danger" @click="confirmDelete(scope.$index)" class="delete-button">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/vue@2"></script>
+  <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.5/xlsx.full.min.js"></script>
+  <script>
+    new Vue({
+      el: '#app',
+      data() {
+        return {
+          form: {
+            amount: '',
+            paymentMethod: '',
+            roomNumber: ''
+          },
+          records: [],
+          selectedMethods: [],
+          roomNumberSearch: '',
+          paymentMethodSearch: ''
+        };
+      },
+      computed: {
+        paymentTotals() {
+          return this.records.reduce((acc, record) => {
+            if (!acc[record.paymentMethod]) {
+              acc[record.paymentMethod] = 0;
+            }
+            acc[record.paymentMethod] += record.amount;
+            return acc;
+          }, {});
+        },
+        paymentCounts() {
+          return this.records.reduce((acc, record) => {
+            if (!acc[record.paymentMethod]) {
+              acc[record.paymentMethod] = 0;
+            }
+            acc[record.paymentMethod]++;
+            return acc;
+          }, {});
+        },
+        selectedTotal() {
+          return this.selectedMethods.reduce((acc, method) => {
+            return acc + (this.paymentTotals[method] || 0);
+          }, 0);
+        },
+        roomNumberFilters() {
+          const roomNumbers = this.records.map(record => record.roomNumber);
+          return Array.from(new Set(roomNumbers)).map(roomNumber => ({
+            text: roomNumber,
+            value: roomNumber
+          }));
+        },
+        paymentMethodFilters() {
+          const paymentMethods = this.records.map(record => record.paymentMethod);
+          return Array.from(new Set(paymentMethods)).map(paymentMethod => ({
+            text: paymentMethod,
+            value: paymentMethod
+          }));
+        }
+      },
+      methods: {
+        addRecord() {
+          if (this.form.amount && this.form.paymentMethod && this.form.roomNumber) {
+            this.records.push({ ...this.form });
+            this.form = { amount: '', paymentMethod: '', roomNumber: '' };
+          } else {
+            this.$message.error('请填写所有字段');
+          }
+        },
+        confirmDelete(index) {
+          this.$confirm('此操作将永久删除该记录, 是否继续?', '提示', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+            type: 'warning'
+          }).then(() => {
+            this.deleteRecord(index);
+            this.$message({
+              type: 'success',
+              message: '删除成功!'
+            });
+          }).catch(() => {
+            this.$message({
+              type: 'info',
+              message: '已取消删除'
+            });          
+          });
+        },
+        deleteRecord(index) {
+          this.records.splice(index, 1);
+        },
+        filterRoomNumber(value, row) {
+          return row.roomNumber === value;
+        },
+        filterPaymentMethod(value, row) {
+          return row.paymentMethod === value;
+        },
+        handleRoomNumberSearch(scope) {
+          this.$refs.roomNumberTable.clearFilter();
+          this.roomNumberSearch = scope.value;
+        },
+        handlePaymentMethodSearch(scope) {
+          this.$refs.paymentMethodTable.clearFilter();
+          this.paymentMethodSearch = scope.value;
+        },
+        exportToExcel() {
+          const worksheet = XLSX.utils.json_to_sheet(this.records);
+          const workbook = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+          XLSX.writeFile(workbook, '支付统计.xlsx');
+        }
+      }
+    });
+  </script>
+</body>
+</html>
