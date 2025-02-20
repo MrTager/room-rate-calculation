@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,7 +9,7 @@
   <style>
     .app-container {
       padding: 20px;
-      max-width: 800px;
+      max-width: 1000px;
       margin: 0 auto;
     }
 
@@ -52,19 +53,38 @@
 
     .export-button {
       margin-bottom: 10px;
+      margin-top: 10px;
+    }
+
+    .required-label::before {
+      content: '*';
+      color: red;
+      margin-right: 4px;
+    }
+
+    .error-message {
+      color: red;
+      font-size: 12px;
     }
   </style>
 </head>
+
 <body>
   <div id="app" class="app-container">
-    <el-form :model="form" label-width="120px" class="form-container">
+    <el-form :model="form" label-width="120px" class="form-container" @keyup.enter.native="addRecord">
       <el-form-item label="房号">
         <el-input v-model="form.roomNumber" placeholder="请输入房号"></el-input>
       </el-form-item>
-      <el-form-item label="金额">
-        <el-input v-model.number="form.amount" placeholder="请输入金额"></el-input>
+      <el-form-item label="姓名">
+        <el-input v-model="form.name" placeholder="请输入姓名"></el-input>
       </el-form-item>
-      <el-form-item label="支付方式">
+      <el-form-item :label="requiredLabel('金额')">
+        <el-input v-model="form.amount" placeholder="请输入金额">
+          <template slot="prefix">￥</template>
+        </el-input>
+        <div v-if="!isAmountValid && form.amount !== ''" class="error-message">请输入有效的数字</div>
+      </el-form-item>
+      <el-form-item :label="requiredLabel('支付方式')">
         <el-select v-model="form.paymentMethod" filterable placeholder="请选择支付方式">
           <el-option label="微信" value="微信"></el-option>
           <el-option label="美团" value="美团"></el-option>
@@ -78,7 +98,8 @@
         </el-select>
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" @click="addRecord">添加记录</el-button>
+        <el-button type="primary" @click="addRecord">添加记录 [Enter]</el-button>
+        <el-button type="info" @click="resetForm">重置页面数据</el-button>
       </el-form-item>
     </el-form>
     <el-card class="box-card">
@@ -86,7 +107,7 @@
         <span>支付方式统计</span>
       </div>
       <div v-for="(total, method) in paymentTotals" :key="method" class="text item">
-        {{ method }}: {{ total }} (单数: {{ paymentCounts[method] || 0 }})
+        {{ method }}: ￥{{ total }} (单数: {{ paymentCounts[method] || 0 }})
         <el-checkbox v-model="selectedMethods" :label="method" style="margin-left: 10px;">选择</el-checkbox>
       </div>
     </el-card>
@@ -96,10 +117,10 @@
       </div>
       <div v-if="selectedMethods.length > 0">
         <div v-for="method in selectedMethods" :key="method" class="text item">
-          {{ method }}: {{ paymentTotals[method] }}
+          {{ method }}: ￥{{ paymentTotals[method] }}
         </div>
         <div class="text item">
-          <strong>总和: {{ selectedTotal }}</strong>
+          <strong>总和: ￥{{ selectedTotal }}</strong>
         </div>
       </div>
       <div v-else>
@@ -111,15 +132,28 @@
     <el-button type="primary" @click="exportToExcel" class="export-button">导出为 Excel</el-button>
     <el-table :data="records" style="width: 100%" class="table-container">
       <el-table-column type="index" label="序号" width="80"></el-table-column>
-      <el-table-column prop="roomNumber" label="房号" width="180" :filters="roomNumberFilters" :filter-method="filterRoomNumber" filter-placement="bottom-end">
+      <el-table-column prop="roomNumber" label="房号" width="180" :filters="roomNumberFilters"
+        :filter-method="filterRoomNumber" filter-placement="bottom-end">
         <template slot="header" slot-scope="scope">
-          <el-input v-model="roomNumberSearch" size="mini" placeholder="输入房号" @keyup.enter.native="handleRoomNumberSearch(scope)" />
+          房号
+          <el-input v-model="roomNumberSearch" size="mini" placeholder="输入房号"
+            @keyup.enter.native="handleRoomNumberSearch(scope)" />
         </template>
       </el-table-column>
-      <el-table-column prop="amount" label="金额" width="180"></el-table-column>
-      <el-table-column prop="paymentMethod" label="支付方式" width="180" :filters="paymentMethodFilters" :filter-method="filterPaymentMethod" filter-placement="bottom-end">
+      <el-table-column prop="name" label="姓名" width="180" :filters="nameFilters" :filter-method="filterName"
+        filter-placement="bottom-end">
         <template slot="header" slot-scope="scope">
-          <el-input v-model="paymentMethodSearch" size="mini" placeholder="输入支付方式" @keyup.enter.native="handlePaymentMethodSearch(scope)" />
+          姓名
+          <el-input v-model="nameSearch" size="mini" placeholder="输入姓名" @keyup.enter.native="handleNameSearch(scope)" />
+        </template>
+      </el-table-column>
+      <el-table-column prop="amount" label="金额" width="180" :formatter="amountFormatter"></el-table-column>
+      <el-table-column prop="paymentMethod" label="支付方式" width="180" :filters="paymentMethodFilters"
+        :filter-method="filterPaymentMethod" filter-placement="bottom-end">
+        <template slot="header" slot-scope="scope">
+          支付方式
+          <el-input v-model="paymentMethodSearch" size="mini" placeholder="输入支付方式"
+            @keyup.enter.native="handlePaymentMethodSearch(scope)" />
         </template>
       </el-table-column>
       <el-table-column label="操作" width="120">
@@ -139,13 +173,15 @@
       data() {
         return {
           form: {
-            amount: '',
+            amount: '',  // 默认值设置为空字符串
             paymentMethod: '',
-            roomNumber: ''
+            roomNumber: '',
+            name: ''
           },
           records: [],
           selectedMethods: [],
           roomNumberSearch: '',
+          nameSearch: '',
           paymentMethodSearch: ''
         };
       },
@@ -155,7 +191,7 @@
             if (!acc[record.paymentMethod]) {
               acc[record.paymentMethod] = 0;
             }
-            acc[record.paymentMethod] += record.amount;
+            acc[record.paymentMethod] += parseFloat(record.amount) || 0;  // 确保金额是数字
             return acc;
           }, {});
         },
@@ -170,7 +206,7 @@
         },
         selectedTotal() {
           return this.selectedMethods.reduce((acc, method) => {
-            return acc + (this.paymentTotals[method] || 0);
+            return acc + (parseFloat(this.paymentTotals[method]) || 0);  // 确保金额是数字
           }, 0);
         },
         roomNumberFilters() {
@@ -180,21 +216,42 @@
             value: roomNumber
           }));
         },
+        nameFilters() {
+          const names = this.records.map(record => record.name);
+          return Array.from(new Set(names)).map(name => ({
+            text: name,
+            value: name
+          }));
+        },
         paymentMethodFilters() {
           const paymentMethods = this.records.map(record => record.paymentMethod);
           return Array.from(new Set(paymentMethods)).map(paymentMethod => ({
             text: paymentMethod,
             value: paymentMethod
           }));
+        },
+        isAmountValid() {
+          return !isNaN(parseFloat(this.form.amount)) && isFinite(this.form.amount);
         }
       },
       methods: {
+        requiredLabel(label) {
+          return `(必填) ${label}`;
+        },
         addRecord() {
-          if (this.form.amount && this.form.paymentMethod && this.form.roomNumber) {
-            this.records.push({ ...this.form });
-            this.form = { amount: '', paymentMethod: '', roomNumber: '' };
+          if (this.form.amount && this.form.paymentMethod && this.isAmountValid) {
+            this.records.push({
+              ...this.form,
+              amount: parseFloat(this.form.amount)  // 将金额转换为数字
+            });
+            this.form = { amount: '', paymentMethod: '', roomNumber: '', name: '' };  // 重置表单
+            this.$message.success('添加成功');
           } else {
-            this.$message.error('请填写所有字段');
+            if (!this.isAmountValid && this.form.amount !== '') {
+              this.$message.error('金额必须是数字');
+            } else {
+              this.$message.error('金额和支付方式为必填字段');
+            }
           }
         },
         confirmDelete(index) {
@@ -212,7 +269,7 @@
             this.$message({
               type: 'info',
               message: '已取消删除'
-            });          
+            });
           });
         },
         deleteRecord(index) {
@@ -221,12 +278,19 @@
         filterRoomNumber(value, row) {
           return row.roomNumber === value;
         },
+        filterName(value, row) {
+          return row.name === value;
+        },
         filterPaymentMethod(value, row) {
           return row.paymentMethod === value;
         },
         handleRoomNumberSearch(scope) {
           this.$refs.roomNumberTable.clearFilter();
           this.roomNumberSearch = scope.value;
+        },
+        handleNameSearch(scope) {
+          this.$refs.nameTable.clearFilter();
+          this.nameSearch = scope.value;
         },
         handlePaymentMethodSearch(scope) {
           this.$refs.paymentMethodTable.clearFilter();
@@ -237,9 +301,33 @@
           const workbook = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
           XLSX.writeFile(workbook, '支付统计.xlsx');
+        },
+        amountFormatter(row, column, cellValue) {
+          return `￥${cellValue}`;
+        },
+        resetForm() {
+          this.$confirm('整个页面的数据将被清空重置, 是否继续?', '提示', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+            type: 'warning'
+          }).then(() => {
+            this.form = { amount: '', paymentMethod: '', roomNumber: '', name: '' };
+            this.records = [];
+            this.selectedMethods = [];
+            this.roomNumberSearch = '';
+            this.nameSearch = '';
+            this.paymentMethodSearch = '';
+            this.$message.info('页面已重置');
+          }).catch(() => {
+            this.$message({
+              type: 'info',
+              message: '已取消重置'
+            });
+          });
         }
       }
     });
   </script>
 </body>
+
 </html>
